@@ -6,6 +6,7 @@ from onpolicy.utils.util import get_grad_norm, mse_loss
 from onpolicy.algorithms.utils.util import check
 from onpolicy.algorithms.utils.distributions import FixedCategorical
 from torch.distributions.kl import kl_divergence
+# from torch.distributions.normal import Normal
 
 class R_MAPPO():
     """
@@ -33,8 +34,8 @@ class R_MAPPO():
         self._use_value_active_masks = args.use_value_active_masks
         self._use_policy_active_masks = args.use_policy_active_masks
 
-        self.use_KL_pen = False
-        #self.beta=  
+        self.use_KL_pen = True
+        self.beta= 3
 
     
     def cal_value_loss(self, values, return_batch, active_masks_batch):
@@ -50,7 +51,22 @@ class R_MAPPO():
         #TODO: Calculate the error using mse_loss (line 5)
         #Hint: If the agent is inactive, the corresponding value loss in the tensor should be 0, and the mean value function loss should take this into account.
 
-        pass
+        # value_pred_clipped = values.clamp(-self.clip_param, self.clip_param)
+        
+        # error_clipped = value_pred_clipped - return_batch
+        error_original = values - return_batch
+        
+        # value_loss_clipped = mse_loss(error_clipped)
+        value_loss_original = mse_loss(error_original)
+        
+        value_loss = value_loss_original
+            
+        if self._use_value_active_masks:
+            value_loss = (value_loss * active_masks_batch).sum() / active_masks_batch.sum()
+        else:
+            value_loss = value_loss.mean()
+        
+        return value_loss
 
 
     def ppo_update(self, sample, update_actor=True):
@@ -84,44 +100,69 @@ class R_MAPPO():
              in rMAPPOPolicy.py on how to calculate log_prob_new. You will also notice that the function returns value function predictions and the policy distribution, both of which will 
              be required to complete the ppo_update() function.
         '''
-        imp_weights = 
+        values, action_log_probs, dist_entropy, pi, logits = self.policy.evaluate_actions(share_obs_batch,
+                                                                              obs_batch, 
+                                                                              rnn_states_batch, 
+                                                                              rnn_states_critic_batch, 
+                                                                              actions_batch, 
+                                                                              masks_batch, 
+                                                                              available_actions_batch,
+                                                                              active_masks_batch)
+        imp_weights = torch.exp(action_log_probs - old_action_log_probs_batch)
 
         if(self.use_KL_pen):
-          #TODO: Compute L_{KLPEN}
-          '''
-          Hint (Calculation of KL Divergence) You may calculate KLD by first getting the old policy and current policy, and calling the  kl_divergence() method from line 8.
-          To get any given policy from the output of the last layer of the actor, refer to onpolicy/algorithms/utils/distributions.py
-          '''
-          L_KLPEN = 
-          if self._use_policy_active_masks:
-              actor_loss = (-torch.sum(L_KLPEN,
+            #TODO: Compute L_{KLPEN}
+            '''
+            Hint (Calculation of KL Divergence) You may calculate KLD by first getting the old policy and current policy, and calling the  kl_divergence() method from line 8.
+            To get any given policy from the output of the last layer of the actor, refer to onpolicy/algorithms/utils/distributions.py
+            '''
+
+            L_KLPEN = imp_weights * adv_targ - self.beta * kl_divergence(FixedCategorical(torch.exp(old_action_log_probs_batch)), FixedCategorical(torch.exp(action_log_probs)))
+
+            # print(L_KLPEN)
+            # print(gkl_divergence(FixedCategorical(torch.exp(old_action_log_probs_batch)), FixedCategorical(torch.exp(action_log_probs))))
+
+            if self._use_policy_active_masks:
+                policy_loss = (-torch.sum(L_KLPEN,
                                               dim=-1,
                                               keepdim=True) * active_masks_batch).sum() / active_masks_batch.sum()
-          else:
-              actor_loss = -torch.sum(L_KLPEN, dim=-1, keepdim=True).mean()
+            else:
+                policy_loss = -torch.sum(L_KLPEN, dim=-1, keepdim=True).mean()
             
         else:
           #TODO: Compute L_{CLIP}
-
-          L_CLIP = 
-          if self._use_policy_active_masks:
-              actor_loss = (-torch.sum(L_CLIP,
+            surr1 = imp_weights * adv_targ
+            surr2 = torch.clamp(imp_weights, 1.0 - self.clip_param, 1.0 + self.clip_param) * adv_targ
+            L_CLIP = torch.min(surr1, surr2)
+            if self._use_policy_active_masks:
+                policy_loss = (-torch.sum(L_CLIP,
                                               dim=-1,
                                               keepdim=True) * active_masks_batch).sum() / active_masks_batch.sum()
-          else:
-              actor_loss = -torch.sum(L_CLIP, dim=-1, keepdim=True).mean()
+            else:
+                policy_loss = -torch.sum(L_CLIP, dim=-1, keepdim=True).mean()
 
 
 
 
 
         # TODO: Update the actor network using stochastic gradient descent
+        self.policy.actor_optimizer.zero_grad()
 
+        if update_actor:
+            (policy_loss - dist_entropy * self.entropy_coef).backward()
+
+        self.policy.actor_optimizer.step()
         
         
         # TODO: Update the critic network using stochastic gradient descent
 
+        value_loss = self.cal_value_loss(values, return_batch, active_masks_batch)
 
+        self.policy.critic_optimizer.zero_grad()
+
+        (value_loss * self.value_loss_coef).backward()
+
+        self.policy.critic_optimizer.step()
        
 
         return value_loss, policy_loss, imp_weights
