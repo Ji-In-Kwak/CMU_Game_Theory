@@ -21,6 +21,12 @@ def construct_q_function(agent_index, obs_n, act_n):
     :return num_q_outputs: (int) Number of outputs of the critic network.
     '''
     # TODO
+    # q_input = tf.concat(obs_n + act_n, 1)
+    # if local_q_func:
+    q_input = tf.concat([obs_n[agent_index], act_n[agent_index]], 1)
+
+    num_q_outputs = 1
+
     return q_input, num_q_outputs
 
 
@@ -33,6 +39,8 @@ def compute_q_loss(q, target_q):
     :return q_loss: (tensorflow Tensor) Loss of the critic network. Shape: ().
     '''
     # TODO
+
+    q_loss = tf.reduce_mean(tf.square(q - target_q))
     return q_loss
 
 
@@ -84,6 +92,9 @@ def construct_p_function(agent_index, obs_n, action_dim):
     :return num_p_outputs: (int) Number of outputs of the actor network.
     '''
     # TODO
+    p_input = obs_n[agent_index]
+    num_p_outputs = action_dim
+
     return p_input, num_p_outputs
 
 
@@ -95,6 +106,7 @@ def compute_p_loss(q):
     :return pg_loss: (tensorflow Tensor) Loss of the actor network. Shape: ().
     '''
     # TODO
+    pg_loss = -tf.reduce_mean(q)
     return pg_loss
 
 
@@ -170,6 +182,11 @@ def compute_q_targets(agent_index, rew, done, obs_next_n, target_policy_func_n, 
 
     # Then, calculate the target Q-value for this step using the immediate reward and the discount factor.
 
+    target_q = 0.0
+    target_q_next = [target_policy_func_n[i](obs_next_n[i]) for i in range(len(obs_next_n))]
+    target_q_next = target_q_func(*(obs_next_n + target_q_next))
+    target_q += rew + gamma * (1.0 - done) * target_q_next
+
     return target_q
 
 
@@ -182,6 +199,8 @@ def update_target_param(param, target_param):
     :return new_target_param: (tensorflow Variable) Updated value of target network parameter. Shape: same as param.
     '''
     # TODO
+    tmp = 1.0 - 1e-2
+    new_target_param = tmp * target_param + (1.0-tmp) * param
     return new_target_param
 
 
@@ -266,6 +285,16 @@ class MADDPGAgentTrainer(AgentTrainer):
         target_policy_func_n = [agents[i].p_debug['target_act'] for i in range(self.n)]
         target_q_func = self.q_debug['target_q_values']
         target_q = compute_q_targets(self.agent_index, rew, done, obs_next_n, target_policy_func_n, target_q_func, self.args.gamma)
+        
+        # # sample code
+        # num_sample = 1
+        # target_q = 0.0
+        # target_act_next_n = [agents[i].p_debug['target_act'](obs_next_n[i]) for i in range(self.n)]
+        # target_q_next = self.q_debug['target_q_values'](*(obs_next_n + target_act_next_n))
+        # target_q += rew + self.args.gamma * (1.0 - done) * target_q_next
+        # target_q /= num_sample
+
+
 
         # update q parameters
         q_loss = self.q_train(*(obs_n + act_n + [target_q]))

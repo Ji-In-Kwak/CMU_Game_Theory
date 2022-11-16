@@ -114,16 +114,69 @@ class Scenario(BaseScenario):
         else:
             return 0
 
+    # def reward(self, agent, world):
+    #     '''
+    #     Return this agent's reward.
+    #     '''
+    #     if world.was_poacher_caught:
+    #         return agent.poacher_caught_rew
+    #     elif world.was_animal_caught:
+    #         return agent.animal_caught_rew
+    #     else:
+    #         return 0
+    
     def reward(self, agent, world):
         '''
         Return this agent's reward.
         '''
+        rew = -0.005
+        poacher = world.agents[0]
+        ranger = world.agents[1]
+        uav = world.agents[2]
+
+        # dist = []
+        # for l in world.landmarks:
+        #     dists.append([np.sqrt(np.sum(np.square(poacher.state.p_pos - l.state.p_pos)))])
+
+        #     rew -= np.exp(-min(dists))
+
         if world.was_poacher_caught:
             return agent.poacher_caught_rew
         elif world.was_animal_caught:
             return agent.animal_caught_rew
         else:
-            return 0
+          rew = -0.001
+
+          if agent.id == 1:
+            dist = agent.state.p_pos - [0, 0]
+            dist = np.sqrt(np.sum(np.square(dist)))
+            if dist >= 0.8:
+              return -0.005
+          elif agent.id ==2:
+            dist = agent.state.p_pos - [0, 0]
+            dist = np.sqrt(np.sum(np.square(dist)))
+            if dist >= 0.8:
+              rew = -0.005
+            if not world.was_poacher_caught and self.is_visible(uav, poacher):
+              rew += -0.15 
+            return rew
+          else:
+            dist = []
+            for l in world.landmarks:
+                dist.append(np.sqrt(np.sum(np.square(poacher.state.p_pos - l.state.p_pos))))
+
+            rew = [np.exp(-min(dist)), 0, 0][agent.id]
+
+          return rew
+
+        # if not world.was_poacher_caught and self.is_visible(ranger, poacher):
+        #   rew = [0, -0.1, -0.05][agent.id]
+        
+
+        # if not world.was_poacher_caught and self.is_visible(uav, poacher):
+        #   rew = [0, -0.05, -0.15][agent.id]    
+        
+        
 
     def is_visible(self, agent, target):
         '''
