@@ -40,6 +40,7 @@ test_loader = torch.utils.data.DataLoader(
 
 # Define what device we are using
 device = torch.device("cuda" if (use_cuda and torch.cuda.is_available()) else "cpu")
+print("device = ", device)
 
 # Initialize the network
 model = Net().to(device)
@@ -54,13 +55,13 @@ model.eval()
 def fgsm_attack(image, epsilon, data_grad):
     # !! Put your code below
     # Collect the element-wise sign of the data gradient, you can use data_grad.sign()
-
+    sign_data_grad = data_grad.sign()
     # Create the perturbed image by adjusting each pixel of the input image
-
+    perturbed_image = image + epsilon*sign_data_grad
     # Adding clipping to maintain [0,1] range, you can use function torch.clamp
-
+    perturbed_image = torch.clamp(perturbed_image, 0, 1)
     # Return the perturbed image
-    
+    return perturbed_image
     # !! Put your code above
 
 def test( model, device, test_loader, epsilon ):

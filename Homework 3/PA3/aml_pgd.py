@@ -43,6 +43,7 @@ test_loader = torch.utils.data.DataLoader(
 
 # Define what device we are using
 device = torch.device("cuda" if (use_cuda and torch.cuda.is_available()) else "cpu")
+print(device)
 
 # Initialize the network
 model = Net().to(device)
@@ -82,6 +83,9 @@ def test( model, device, test_loader, epsilon ):
         if init_pred.item() != target.item():
             continue
 
+        # loss function
+        criterion = nn.CrossEntropyLoss()
+
         # Initialize perturbed image
         delta = torch.zeros_like(image)
         # Initialize perturbed image
@@ -97,26 +101,30 @@ def test( model, device, test_loader, epsilon ):
             # !! Put your code below
 
             # Send the perturbed image in the last iteration to model to get output
-
+            output = model(perturbed_image)
             # Calculate the loss given the new output and the target
-
+            cost = criterion(output, target).to(device)
             # Zero all existing gradients
-
+            model.zero_grad()
             # Calculate gradients of model in backward pass
-
+            # cost.backward()
             # Collect gradient w.r.t. the input (perturbed_image)
-
+            grad = torch.autograd.grad(cost, perturbed_image, retain_graph=False, create_graph=False)[0]
+            # grad = perturbed_image.grad.sign()
             # Update delta based on the gradient
-
+            delta = alpha * grad.sign()
             # Adding clipping to maintain [-epsilon,epsilon] range for delta, you can use function torch.clamp
-
+            delta = torch.clamp(delta, min=-epsilon, max=epsilon)
             # Adjust delta to make sure the perturbed image is in the range [0,1] You can apply torch clamp to
             # delta+image, and then update delta as the difference between the clamped image and the original image
-
+            perturbed_image.data = perturbed_image.detach() + delta.detach()
+            perturbed_image = torch.clamp(perturbed_image, 0, 1)
+            delta = perturbed_image.data - image.detach()
             # update perturbed_image
-
+            perturbed_image = perturbed_image + delta
             # Reset gradient of perturbed_image to zero, you can use x.grad.zero_()
-
+            # model.zero_grad()
+            # perturbed_image.grad = 0
 
             # !! Put your code above
 
@@ -149,7 +157,14 @@ accuracies = []
 examples = []
 
 # Run test for each epsilon
+# for eps in epsilons:
+#     acc, ex = test(model, device, test_loader, eps)
+#     accuracies.append(acc)
+#     examples.append(ex)
+
+num_iter = 300
 for eps in epsilons:
+    alpha = eps/100
     acc, ex = test(model, device, test_loader, eps)
     accuracies.append(acc)
     examples.append(ex)
@@ -161,7 +176,8 @@ plt.xticks(np.array(epsilons))
 plt.title("Accuracy vs Epsilon")
 plt.xlabel("Epsilon")
 plt.ylabel("Accuracy")
-plt.savefig("aml_pgd_acc.png")
+# plt.savefig("aml_pgd_acc.png")
+plt.savefig("aml_pgd2_acc.png")
 
 # Plot several examples of adversarial samples at each epsilon
 cnt = 0
@@ -178,4 +194,6 @@ for i in range(len(epsilons)):
         plt.title("{} -> {}".format(orig, adv))
         plt.imshow(ex, cmap="gray")
 plt.tight_layout()
-plt.savefig("aml_pgd_ex.png")
+# plt.savefig("aml_pgd_ex.png")
+plt.savefig("aml_pgd2_ex.png")
+
